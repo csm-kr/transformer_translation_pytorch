@@ -78,8 +78,8 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import matplotlib.font_manager as fm
 
-from torchtext.legacy import data as ttd
-from torchtext.legacy.data import Example, Dataset
+# from torchtext.legacy import data as ttd
+# from torchtext.legacy.data import Example, Dataset
 
 
 def load_dataset(mode):
@@ -123,7 +123,7 @@ def clean_text(text):
     Returns:
         normalized sentence
     """
-    text = re.sub('[-=+,#/\?:^$.@*\"※~&%ㆍ!』\\‘|\(\)\[\]\<\>`…》]', '', text)
+    text = re.sub('[-=+,#/\?:^$.@*\"※~&%ㆍ!』\\‘|\(\)\[\]\<\>`…》;]', '', text)
     return text
 
 
@@ -313,6 +313,12 @@ class Params:
         """Gives dict-like access to Params instance by `params.dict['learning_rate']`"""
         return self.__dict__
 
+
+def subsequent_mask(size):
+    "Mask out subsequent positions."
+    attn_shape = (1, size, size)
+    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
+    return torch.from_numpy(subsequent_mask) == 0
 
 if __name__ == '__main__':
     param = Params('config/params.json')
