@@ -8,6 +8,8 @@ data/
 *.tmp
 
 # train
+model.pt
+pickles/
 figure/
 pretrained/
 voc/
