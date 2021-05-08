@@ -68,3 +68,24 @@ class MultiHeadAttention(nn.Module):
     #     mask = torch.ones([4, 1, 100])
     #     print(model(tensor, mask).size())
 
+
+class FeedForwardNet(nn.Module):
+    def __init__(self, model_dim, dropout=0.1):
+        super().__init__()
+
+        self.ffd = nn.Sequential(nn.Linear(model_dim, model_dim * 4),
+                                 nn.ReLU(inplace=True),
+                                 nn.Dropout(p=dropout),
+                                 nn.Linear(model_dim * 4, model_dim))
+
+    def forward(self, x):
+        return self.ffd(x)
+
+
+class ResidualConnection(nn.Module):
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def forward(self, x, **kwargs):
+        return self.fn(x, **kwargs) + x
