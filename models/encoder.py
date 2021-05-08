@@ -1,9 +1,7 @@
 import torch.nn as nn
 
-from model.attention import MultiHeadAttention
-from model.positionwise import PositionWiseFeedForward
-from model.ops import create_positional_encoding, create_source_mask, create_position_vector
-
+from models.attention import MultiHeadAttention
+from models.positionwise import PositionWiseFeedForward
 
 class EncoderLayer(nn.Module):
     def __init__(self, params):
@@ -33,6 +31,9 @@ class Encoder(nn.Module):
         self.token_embedding = nn.Embedding(params.input_dim, params.hidden_dim, padding_idx=params.pad_idx)
         nn.init.normal_(self.token_embedding.weight, mean=0, std=params.hidden_dim**-0.5)
         self.embedding_scale = params.hidden_dim ** 0.5
+
+        from model.ops import create_positional_encoding, create_source_mask, create_position_vector
+
         self.pos_embedding = nn.Embedding.from_pretrained(
             create_positional_encoding(params.max_len+1, params.hidden_dim), freeze=True)             # [65, 512]
 

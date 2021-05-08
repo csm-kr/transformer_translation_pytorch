@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 
-from model.attention import MultiHeadAttention
-from model.positionwise import PositionWiseFeedForward
-from model.ops import create_positional_encoding, create_target_mask, create_position_vector
+from models.attention import MultiHeadAttention
+from models.positionwise import PositionWiseFeedForward
+from models.ops import create_positional_encoding, create_target_mask, create_position_vector
 
 
 class DecoderLayer(nn.Module):
@@ -53,6 +53,7 @@ class Decoder(nn.Module):
         # target              = [batch size, target length]
         # source              = [batch size, source length]
         # encoder_output      = [batch size, source length, hidden dim]
+
         target_mask, dec_enc_mask = create_target_mask(source, target)
         # target_mask / dec_enc_mask  = [batch size, target length, target/source length]
         target_pos = create_position_vector(target)  # [batch size, target length]
