@@ -55,22 +55,15 @@ class MultiHeadAttention(nn.Module):
         v = self.W_k(x)    # [B, 100, 512]
 
         if mask is not None:
-            mask = mask.unsqueeze(1)                    # [B, 1, 1, 100]
+            mask = mask.unsqueeze(1)                    # [B, 1, 1, 100] for broadcasting.
 
         attention = self.self_attention(q, k, v, mask)  # [B, 100, 512]
         x = self.W_o(attention)                         # [B, 100, 512]
         return x
 
-    # multi-head attention test
-    # if __name__ == '__main__':
-    #     model = MultiHeadAttention()
-    #     tensor = torch.randn([4, 100, 512])
-    #     mask = torch.ones([4, 1, 100])
-    #     print(model(tensor, mask).size())
-
 
 class FeedForwardNet(nn.Module):
-    def __init__(self, model_dim, dropout=0.1):
+    def __init__(self, model_dim, dropout):
         super().__init__()
 
         self.ffd = nn.Sequential(nn.Linear(model_dim, model_dim * 4),
@@ -78,14 +71,70 @@ class FeedForwardNet(nn.Module):
                                  nn.Dropout(p=dropout),
                                  nn.Linear(model_dim * 4, model_dim))
 
-    def forward(self, x):
-        return self.ffd(x)
+    def forward(self, x, mask):
+        if mask is None:
+            return self.ffd(x)
 
 
 class ResidualConnection(nn.Module):
-    def __init__(self, fn):
-        super().__init__()
-        self.fn = fn
+    def __init__(self, model_dim, dropout):
+        super(ResidualConnection, self).__init__()
+        self.layer_norm = nn.LayerNorm(model_dim)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, **kwargs):
-        return self.fn(x, **kwargs) + x
+    def forward(self, x, module, mask=None):
+        """
+
+        Args:
+            x:
+            module: MultiHeadAttention or FeedForwardNet
+
+        Returns: layer_norm(residual(dropout(module(X, mask))))
+
+        """
+        residual = x
+        x = module(x, mask)
+        x = self.dropout(x)
+        x += residual
+
+        x = self.layer_norm(x)
+        # post LayerNorm original version of transformer but there is pre LayerNorm
+        return x
+
+
+class EncoderBlock(nn.Module):
+    def __init__(self, model_dim, num_head, dropout=0.1):
+        super().__init__()
+        self.multi_head_attention = MultiHeadAttention(model_dim=model_dim, num_head=num_head)
+        self.residual_1 = ResidualConnection(model_dim=model_dim, dropout=dropout)
+
+        self.feed_forward = FeedForwardNet(model_dim=model_dim, dropout=dropout)
+        self.residual_2 = ResidualConnection(model_dim=model_dim, dropout=dropout)
+
+    def forward(self, x, mask):
+        x = self.residual_1(x, module=self.multi_head_attention, mask=mask)
+        x = self.residual_2(x, module=self.multi_head_attention)
+        return x
+
+
+class Encoder(nn.Module):
+    def __init__(self, num_layers, model_dim, num_head, dropout):
+        super().__init__()
+        self.num_layers = num_layers
+        self.encoder_layers = nn.ModuleList([])
+
+        for _ in range(self.num_layers):
+            self.encoder_layers.append(EncoderBlock(model_dim, num_head, dropout))
+
+    def forward(self, x, mask=None):
+        for i, encoder_layer in enumerate(self.encoder_layers):
+            x = encoder_layer(x, mask)
+        return x
+
+
+if __name__ == '__main__':
+    num_layers, model_dim, num_head, dropout = 6, 512, 8, 0.1
+    model = Encoder(num_layers, model_dim, num_head, dropout)
+    tensor = torch.randn([4, 100, 512])
+    mask = torch.ones([4, 1, 100])
+    print(model(tensor, mask).size())
