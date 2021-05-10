@@ -60,7 +60,8 @@ class KorEngDataset(Dataset):
     @staticmethod
     def make_std_mask(tgt, pad_token_idx):
         target_mask = (tgt != pad_token_idx).unsqueeze(-2)
-        target_mask = target_mask & Variable(subsequent_mask(tgt.size(-1)).type_as(target_mask.data)) # ??
+        # make look-ahead mask - 하나씩 늘려가면서
+        target_mask = target_mask & Variable(subsequent_mask(tgt.size(-1)).type_as(target_mask.data))
         return target_mask.squeeze()
 
     def __len__(self):

@@ -4,10 +4,14 @@ import torch.nn as nn
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, model_dim=512, num_head=8):
+    def __init__(self, model_dim=512, num_head=8, dropout=0.1):
         super().__init__()
         self.num_head = num_head
         self.model_dim = model_dim
+
+        self.layer_norm = nn.LayerNorm(model_dim)
+        self.dropout = nn.Dropout(dropout)
+
         self.d_k = self.d_v = model_dim // num_head  # 512 / 8 = 64
 
         self.W_q = nn.Linear(model_dim, model_dim)
@@ -48,72 +52,55 @@ class MultiHeadAttention(nn.Module):
         result = result.permute(0, 2, 1, 3).reshape(batch_size, -1, self.model_dim)   # [B, token, h, dk -> B, 100, 512]
         return result
 
-    def forward(self, x, mask=None):
+    def forward(self, x1, x2, x3, mask=None):
+        residual = x1
         # x shape is                                     [batch, num_token, model_dim] - [4, 100, 512]
-        q = self.W_q(x)    # [B, 100, 512]
-        k = self.W_k(x)    # [B, 100, 512]
-        v = self.W_k(x)    # [B, 100, 512]
+        q = self.W_q(x1)    # [B, 100, 512]
+        k = self.W_k(x2)    # [B, 100, 512]
+        v = self.W_k(x3)    # [B, 100, 512]
 
         if mask is not None:
             mask = mask.unsqueeze(1)                    # [B, 1, 1, 100] for broadcasting.
 
         attention = self.self_attention(q, k, v, mask)  # [B, 100, 512]
         x = self.W_o(attention)                         # [B, 100, 512]
+
+        # Dropout-Residual-LayerNorm -> post LayerNorm original version of transformer
+        x = self.dropout(x)
+        x += residual
+        x = self.layer_norm(x)
         return x
 
 
 class FeedForwardNet(nn.Module):
     def __init__(self, model_dim, dropout):
         super().__init__()
-
+        self.layer_norm = nn.LayerNorm(model_dim)
+        self.dropout = nn.Dropout(dropout)
         self.ffd = nn.Sequential(nn.Linear(model_dim, model_dim * 4),
                                  nn.ReLU(inplace=True),
                                  nn.Dropout(p=dropout),
                                  nn.Linear(model_dim * 4, model_dim))
 
-    def forward(self, x, mask):
-        if mask is None:
-            return self.ffd(x)
-
-
-class ResidualConnection(nn.Module):
-    def __init__(self, model_dim, dropout):
-        super(ResidualConnection, self).__init__()
-        self.layer_norm = nn.LayerNorm(model_dim)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, module, mask=None):
-        """
-
-        Args:
-            x:
-            module: MultiHeadAttention or FeedForwardNet
-
-        Returns: layer_norm(residual(dropout(module(X, mask))))
-
-        """
+    def forward(self, x):
         residual = x
-        x = module(x, mask)
+        x = self.ffd(x)
+        # Dropout-Residual-LayerNorm -> post LayerNorm original version of transformer
         x = self.dropout(x)
         x += residual
-
         x = self.layer_norm(x)
-        # post LayerNorm original version of transformer but there is pre LayerNorm
         return x
 
 
 class EncoderBlock(nn.Module):
     def __init__(self, model_dim, num_head, dropout=0.1):
         super().__init__()
-        self.multi_head_attention = MultiHeadAttention(model_dim=model_dim, num_head=num_head)
-        self.residual_1 = ResidualConnection(model_dim=model_dim, dropout=dropout)
-
+        self.multi_head_attention = MultiHeadAttention(model_dim=model_dim, num_head=num_head, dropout=dropout)
         self.feed_forward = FeedForwardNet(model_dim=model_dim, dropout=dropout)
-        self.residual_2 = ResidualConnection(model_dim=model_dim, dropout=dropout)
 
     def forward(self, x, mask):
-        x = self.residual_1(x, module=self.multi_head_attention, mask=mask)
-        x = self.residual_2(x, module=self.multi_head_attention)
+        x = self.multi_head_attention(x, x, x, mask)
+        x = self.feed_forward(x)
         return x
 
 
@@ -130,6 +117,38 @@ class Encoder(nn.Module):
         for i, encoder_layer in enumerate(self.encoder_layers):
             x = encoder_layer(x, mask)
         return x
+
+
+class DecoderBlock(nn.Module):
+    def __init__(self, model_dim, num_head, dropout=0.1):
+        super().__init__()
+        self.masked_multi_head_attention = MultiHeadAttention(model_dim=model_dim, num_head=num_head, dropout=dropout)
+        self.multi_head_attention = MultiHeadAttention(model_dim=model_dim, num_head=num_head, dropout=dropout)
+        self.feed_forward = FeedForwardNet(model_dim=model_dim, dropout=dropout)
+
+    def forward(self, target, encoder_output, target_mask, encoder_mask):
+        x = self.masked_multi_head_attention(target, target, target, target_mask)
+        x = self.multi_head_attention(x, encoder_output, encoder_output, encoder_mask)
+        x = self.feed_forward(x)
+        return x
+
+
+class Decoder(nn.Module):
+    def __init__(self, num_layers, model_dim, num_head, dropout):
+        super().__init__()
+        self.num_layers = num_layers
+        self.decoder_layers = nn.ModuleList([])
+
+        for _ in range(self.num_layers):
+            self.decoder_layers.append(DecoderBlock(model_dim, num_head, dropout))
+
+    def forward(self, target, encoder_output, target_mask, encoder_mask):
+        for i, decoder_layer in enumerate(self.decoder_layers):
+            x = decoder_layer(target, encoder_output, encoder_mask, target_mask)
+        return x
+
+
+# class Transformer(nn.Module):
 
 
 if __name__ == '__main__':
