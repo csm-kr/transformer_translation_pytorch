@@ -1,6 +1,7 @@
 import torch
 import math
 import torch.nn as nn
+from torch.autograd import Variable
 
 
 class MultiHeadAttention(nn.Module):
@@ -148,12 +149,83 @@ class Decoder(nn.Module):
         return x
 
 
-# class Transformer(nn.Module):
+class Transformer(nn.Module):
+
+    def __init__(self, num_vocab, model_dim, max_seq_len, num_head, num_layers, dropout):
+        super().__init__()
+
+        self.model_dim = model_dim
+        self.embedding = nn.Embedding(num_vocab, model_dim)
+        self.positional_encoding = PositionalEncoding(max_seq_len, model_dim)
+
+        self.encoders = Encoder(num_layers=num_layers, model_dim=model_dim, num_head=num_head, dropout=dropout)
+        self.decoders = Decoder(num_layers=num_layers, model_dim=model_dim, num_head=num_head, dropout=dropout)
+        self.layer_norm = nn.LayerNorm(model_dim, eps=1e-6)
+
+        print("num_params : ", self.count_parameters())
+
+    def count_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+    def forward(self, input, target, input_mask, target_mask):
+
+        x = self.embedding(input) * math.sqrt(self.model_dim)
+        x = self.positional_encoding(x)
+        x = self.encoders(x, input_mask)
+
+        target = self.embedding(target) * math.sqrt(self.model_dim)
+        target = self.positional_encoding(target)
+        target = self.decoders(target, x, target_mask, input_mask)
+
+        target = self.layer_norm(target)
+        output = torch.matmul(target, self.embedding.weight.transpose(0, 1))
+
+        return output
+
+
+class Generator(nn.Module):
+    def __init__(self, d_model, vocab_num):
+        super(Generator, self).__init__()
+        self.proj_1 = nn.Linear(d_model, d_model * 4)
+        self.proj_2 = nn.Linear(d_model * 4, vocab_num)
+
+    def forward(self, x):
+        x = self.proj_1(x)
+        x = self.proj_2(x)
+        return x
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, max_seq_len, model_dim, dropout=0.1):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_seq_len, model_dim)
+
+        position = torch.arange(0, max_seq_len).unsqueeze(1)
+        base = torch.ones(model_dim // 2).fill_(10000)
+
+        pow_term = torch.arange(0, model_dim, 2) / torch.tensor(model_dim, dtype=torch.float32)
+        div_term = torch.pow(base, pow_term)
+
+        pe[:, 0::2] = torch.sin(position / div_term)
+        pe[:, 1::2] = torch.cos(position / div_term)
+
+        pe = pe.unsqueeze(0)
+
+        # pe를 학습되지 않는 변수로 등록
+        self.register_buffer('positional_encoding', pe)
+
+    def forward(self, x):
+        x = x + Variable(self.positional_encoding[:, :x.size(1)], requires_grad=False)
+        return self.dropout(x)
 
 
 if __name__ == '__main__':
-    num_layers, model_dim, num_head, dropout = 6, 512, 8, 0.1
-    model = Encoder(num_layers, model_dim, num_head, dropout)
-    tensor = torch.randn([4, 100, 512])
-    mask = torch.ones([4, 1, 100])
-    print(model(tensor, mask).size())
+    model = Transformer(num_vocab=110000, model_dim=512, max_seq_len=64, num_head=8, num_layers=6, dropout=0.1)
+
+    input = torch.ones([4, 64], dtype=torch.long)
+    target = torch.ones([4, 64], dtype=torch.long)
+    input_mask = torch.ones([4, 1, 64])
+    target_mask = torch.ones([4, 64, 64])
+    print(model(input, target, input_mask, target_mask).size())
