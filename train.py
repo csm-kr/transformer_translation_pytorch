@@ -14,10 +14,10 @@ def train(epoch, vis, train_loader, model, criterion, optimizer, scheduler, opts
 
         # burn in process
         if opts.warm_up is not None:
-            burn_in_idx = idx + epoch * len(train_loader)
-            if burn_in_idx < opts.burn_in:
+            warm_up_idx = idx + epoch * len(train_loader)
+            if warm_up_idx < opts.warm_up:
                 for param_group in optimizer.param_groups:
-                    param_group['lr'] = opts.lr * ((burn_in_idx + 1) / opts.burn_in) ** 4
+                    param_group['lr'] = opts.lr * ((warm_up_idx + 1) / opts.warm_up) ** 4
 
         optimizer.zero_grad()
 
